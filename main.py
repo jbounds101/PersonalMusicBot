@@ -1,9 +1,16 @@
 import os
 import discord
 import requests
+import json
 
 client = discord.Client()
 key = os.environ['DISCORD_KEY']
+
+def get_quote():
+  response = requests.get('https://zenquotes.io/api/random')
+  jsonData = json.loads(response.text)
+  quote = jsonData[0]['q'] + ' -' + jsonData[0]['a']
+  return(quote)
 
 @client.event
 async def on_ready():
@@ -19,6 +26,9 @@ async def on_message(message):
 
   if message.content.startswith('!hello'):
     await message.channel.send('Hello friend!')
+
+  if message.content.startswith('!inspire'):
+    await message.channel.send(get_quote())
 
 client.run(key)
 
