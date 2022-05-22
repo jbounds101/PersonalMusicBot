@@ -2,53 +2,34 @@ import os
 import discord
 import requests
 import json
+from discord.ext import commands
 
-client = discord.Client()
-voiceClient = client.voice_clients
+bot = commands.Bot(command_prefix='!')
 
-key = os.environ['DISCORD_KEY']
 
-def get_quote():
-  response = requests.get('https://zenquotes.io/api/random')
-  jsonData = json.loads(response.text)
-  quote = jsonData[0]['q'] + ' -' + jsonData[0]['a']
-  return(quote)
-
-@client.event
+@bot.event
 async def on_ready():
-  # Async, called when the bot is ready (calls automatically)
-  print('We have logged in as {0.user}'.format(client))
+    print('Logged in as {0.user}'.format(bot))
+
+@bot.event
+async def on_command_error(ctx, error):
+    await ctx.message.add_reaction('❌')
+    if isinstance(error, commands.CommandNotFound):
+        await ctx.message.reply('**Invalid command!** Use __!help__ to list possible commands.')
+    else:
+        await ctx.message.reply('**Invalid command usage!**')
+
+@bot.command()
+async def test(ctx, *, arg):
+    await ctx.message.reply(arg)
 
 
-@client.event
-async def on_message(message):
-  
-  # Need to ignore self message
-  if message.author == client.user:
-    return
-
-  voiceClient = client.voice_clients
-
-  user = message.author
-  userMsg = message.content
-  userTextChannel = message.channel
-  userID = user.id
-  userVoiceClient = None
-
-  print(len(voiceClient))
-
-  for voiceUser in voiceClient:
-    if voiceUser.id == userID:
-      userVoiceClient = voiceUser
-      print('User is in a voice channel')
-  
-  if userMsg.startswith('!hello'):
-    await userTextChannel.send('Hello friend!')
-
-  if userMsg.startswith('!inspire'):
-    await userTextChannel.send(get_quote())
+@bot.command()
+async def add(ctx, a: int, b: int):  # converts a and b to ints during invoke
+    if a == 9 and b == 10:
+        a = 11  # 9 + 10 = 21
+    await ctx.message.reply(a + b)
+    await ctx.message.add_reaction('✅')
 
 
-
-client.run(key)
-
+bot.run(os.getenv('DISCORD_TOKEN'))
