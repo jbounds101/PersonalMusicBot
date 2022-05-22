@@ -4,6 +4,7 @@ import requests
 import json
 
 client = discord.Client()
+voiceClient = client.voice_clients
 
 key = os.environ['DISCORD_KEY']
 
@@ -26,16 +27,28 @@ async def on_message(message):
   if message.author == client.user:
     return
 
-  msg = message.content
+  voiceClient = client.voice_clients
 
-  if msg.startswith('!hello'):
-    await message.channel.send('Hello friend!')
+  user = message.author
+  userMsg = message.content
+  userTextChannel = message.channel
+  userID = user.id
+  userVoiceClient = None
 
-  if msg.startswith('!inspire'):
-    await message.channel.send(get_quote())
+  print(len(voiceClient))
 
-  if msg.startswith('!join') or msg.startswith('!connect'):
-    await discord.VoiceProtocol(client, discord.VoiceChannel)
+  for voiceUser in voiceClient:
+    if voiceUser.id == userID:
+      userVoiceClient = voiceUser
+      print('User is in a voice channel')
+  
+  if userMsg.startswith('!hello'):
+    await userTextChannel.send('Hello friend!')
+
+  if userMsg.startswith('!inspire'):
+    await userTextChannel.send(get_quote())
+
+
 
 client.run(key)
 
