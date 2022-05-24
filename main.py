@@ -1,8 +1,12 @@
+import asyncio
 import os
 import discord
 import requests
 import json
+import spotipy
+import webbrowser
 from discord.ext import commands
+
 
 bot = commands.Bot(command_prefix='!')
 
@@ -13,7 +17,10 @@ def getUserVoiceChannel(ctx):
 
 
 @bot.after_invoke
-async def success(ctx):
+async def reactOnSuccessFail(ctx):
+    if ctx.command_failed:
+        await ctx.message.add_reaction('❌')
+        return
     await ctx.message.add_reaction('✅')
 
 @bot.event
@@ -24,13 +31,15 @@ async def on_ready():
 
 @bot.event
 async def on_command_error(ctx, error):
-    await ctx.message.add_reaction('❌')
+
     print('***Error*** (' + ctx.message.content + '):\t' + str(error))
     if isinstance(error, commands.CommandNotFound):
         await ctx.message.reply('**Invalid command!** Use __!help__ to list possible commands.')
     else:
         await ctx.message.reply('**Invalid command usage!** Use __!help__ to list proper usage.')
 
+
+# ---Commands---
 @bot.command()
 async def echo(ctx, *, arg):
 
@@ -56,7 +65,6 @@ async def join(ctx):
     if voiceChannel is None:
         raise commands.CommandError('You are not connected to a voice channel.')
 
-
     if ctx.voice_client is not None:
         return await ctx.voice_client.move_to(voiceChannel)
     await voiceChannel.connect()
@@ -65,6 +73,12 @@ async def join(ctx):
 async def leave(ctx):
     await ctx.voice_client.disconnect()
     #await ctx.voice_client.cleanup()
+
+@bot.command()
+async def sound(ctx):
+    await ctx.invoke(bot.get_command('join'))
+    source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio('song.mp3'))
+    ctx.voice_client.play(source, after=lambda e: print('Player error: %s' % e) if e else None)
 
 
 bot.run(os.getenv('DISCORD_TOKEN'))
