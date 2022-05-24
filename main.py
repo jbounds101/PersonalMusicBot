@@ -1,10 +1,8 @@
-import asyncio
 import os
 import discord
+import random
 import requests
 import json
-import spotipy
-import webbrowser
 from discord.ext import commands
 
 
@@ -76,9 +74,27 @@ async def leave(ctx):
 
 @bot.command()
 async def sound(ctx):
+    if ctx.message.content is None:
+        raise commands.CommandError('No media was specified.')
     await ctx.invoke(bot.get_command('join'))
-    source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio('song.mp3'))
+    song = ctx.message.content.split(' ')[1]
+    source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio("Songs/" + song + '.mp3'))
     ctx.voice_client.play(source, after=lambda e: print('Player error: %s' % e) if e else None)
+    await ctx.send('>>> Now playing: `{}`'.format(song))
+
+@bot.command()
+async def randomMsg(ctx):
+    messages = await ctx.channel.history(limit=100).flatten()
+    selected = random.choice(messages)
+    await selected.reply('This message is from ---')
+    # TODO overhaul this
+
+
+@bot.command()
+async def fox(ctx):
+    response = requests.get('https://randomfox.ca/floof').json()
+    await ctx.message.reply(response.get('image'))
+
 
 
 bot.run(os.getenv('DISCORD_TOKEN'))
