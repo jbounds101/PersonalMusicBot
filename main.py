@@ -17,7 +17,11 @@ def getUserVoiceChannel(ctx):
     return ctx.author.voice.channel
 
 def playFromAudioQueue(ctx):
-
+    if len(audioQueue) <= 0:
+        return
+    source = audioQueue.pop()
+    ctx.voice_client.play(source[0], after=playFromAudioQueue())
+    await ctxGlobal.send('>>> Now playing: `{}`'.format(source[1].title))
 
 
 @bot.after_invoke
@@ -104,16 +108,19 @@ async def play(ctx):
         except IndexError:
             # Ran out of search results
             raise commands.CommandError('No results were found.')
+
+    if 'https' in query or '.com' in query:  # Check if a link is given
+        query = video.title
     toDownload[0].download('Songs/', filename=(query + '.mp4'))
 
 
     source = discord.FFmpegPCMAudio("Songs/" + query + '.mp4')
-    try:
-        ctx.voice_client.play(source, after=playFromAudioQueue(ctx))
-    except discord.ClientException:
-        pass
-        # TODO add handling for already playing music
-    await ctx.send('>>> Now playing: `{}`'.format(video.title))
+    audioQueue.append((source, video))
+    await ctx.message.reply('Added to queue: `{}`'.format(video.title))
+    if not audioQueueCreated:
+        global ctxGlobal
+        ctxGlobal = ctx
+        await playFromAudioQueue()
 
 @bot.command()
 async def randomMsg(ctx):
