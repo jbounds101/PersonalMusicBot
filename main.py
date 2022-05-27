@@ -4,15 +4,20 @@ import random
 import requests
 import json
 import pytube
+import pytube.exceptions
 from discord.ext import commands
 
 
 bot = commands.Bot(command_prefix='!')
+audioQueue = []
 
 def getUserVoiceChannel(ctx):
     if ctx.author.voice is None:
         return None
     return ctx.author.voice.channel
+
+def playFromAudioQueue(ctx):
+
 
 
 @bot.after_invoke
@@ -104,7 +109,7 @@ async def play(ctx):
 
     source = discord.FFmpegPCMAudio("Songs/" + query + '.mp4')
     try:
-        ctx.voice_client.play(source, after=lambda e: print('Player error: %s' % e) if e else None)
+        ctx.voice_client.play(source, after=playFromAudioQueue(ctx))
     except discord.ClientException:
         pass
         # TODO add handling for already playing music
