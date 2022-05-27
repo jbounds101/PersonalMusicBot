@@ -3,6 +3,7 @@ import discord
 import random
 import requests
 import json
+import pytube
 from discord.ext import commands
 
 
@@ -70,17 +71,44 @@ async def join(ctx):
 @bot.command()
 async def leave(ctx):
     await ctx.voice_client.disconnect()
-    #await ctx.voice_client.cleanup()
 
 @bot.command()
-async def sound(ctx):
+async def play(ctx):
+    MAX_VIDEO_LENGTH = 600  # in seconds -> 10 minutes
     if ctx.message.content is None:
         raise commands.CommandError('No media was specified.')
     await ctx.invoke(bot.get_command('join'))
-    song = ctx.message.content.split(' ')[1]
-    source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio("Songs/" + song + '.mp3'))
-    ctx.voice_client.play(source, after=lambda e: print('Player error: %s' % e) if e else None)
-    await ctx.send('>>> Now playing: `{}`'.format(song))
+    query = ctx.message.content.split(' ', 1)[1]
+
+    # Search YouTube for the video
+    search = pytube.Search(query)
+
+    i = 0
+    while True:
+        try:
+            video = search.results[i]
+            if video.length > MAX_VIDEO_LENGTH:
+                i += 1
+                continue
+            stream = pytube.YouTube(video.watch_url)
+            toDownload = stream.streams.filter(only_audio=True)
+            break
+        except pytube.exceptions.LiveStreamError:
+            # Video is a live stream
+            i += 1
+        except IndexError:
+            # Ran out of search results
+            raise commands.CommandError('No results were found.')
+    toDownload[0].download('Songs/', filename=(query + '.mp4'))
+
+
+    source = discord.FFmpegPCMAudio("Songs/" + query + '.mp4')
+    try:
+        ctx.voice_client.play(source, after=lambda e: print('Player error: %s' % e) if e else None)
+    except discord.ClientException:
+        pass
+        # TODO add handling for already playing music
+    await ctx.send('>>> Now playing: `{}`'.format(video.title))
 
 @bot.command()
 async def randomMsg(ctx):
