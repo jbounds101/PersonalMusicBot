@@ -1,3 +1,4 @@
+import asyncio
 import os
 import discord
 import random
@@ -6,22 +7,70 @@ import json
 import pytube
 import pytube.exceptions
 from discord.ext import commands
-
+from async_timeout import timeout
 
 bot = commands.Bot(command_prefix='!')
-audioQueue = []
+music = None
+
+class MusicPlayer:
+    def __init__(self, ctx):
+        self.bot = ctx.bot
+        self.guild = ctx.guild
+        self.channel = ctx.channel
+        self.cog = ctx.cog
+
+        self.queue = asyncio.Queue()
+        self.next = asyncio.Event()
+
+        self.np = None  # Now playing message
+        self.current = None
+        self.audioQueue = None
+
+        ctx.bot.loop.create_task(self.audio_loop())
+
+    async def audio_loop(self):
+        await self.bot.wait_until_ready()
+
+        while not self.bot.is_closed():
+            self.next.clear()
+
+            try:
+                # Wait for the next song. If we timeout cancel the player and disconnect...
+                async with timeout(300):  # 5 minutes...
+                    temp = self.audioQueue.pop()
+            except asyncio.TimeoutError:
+                    return self.destroy(self.guild)
+            fileName = temp[0]
+            video = temp[1]
+            source = discord.FFmpegPCMAudio("Songs/" + fileName)
+
+            self.guild.voice_client.play(source, after=lambda _: self.bot.loop.call_soon_threadsafe(self.next.set))
+            self.np = await self.channel.send('yo')
+
+            await self.next.wait()
+
+            # Make sure the FFmpeg process is cleaned up.
+            source.cleanup()
+            self.current = None
+
+    def destroy(self, guild):
+        """Disconnect and cleanup the player."""
+        return self.bot.loop.create_task(self.cog.cleanup(guild))
 
 def getUserVoiceChannel(ctx):
     if ctx.author.voice is None:
         return None
     return ctx.author.voice.channel
 
-def playFromAudioQueue(ctx):
+"""async def playFromAudioQueue(ctx):
     if len(audioQueue) <= 0:
         return
-    source = audioQueue.pop()
-    ctx.voice_client.play(source[0], after=playFromAudioQueue())
-    await ctxGlobal.send('>>> Now playing: `{}`'.format(source[1].title))
+    popped = audioQueue.pop()
+    fileName = popped[0]
+    video = popped[1]
+    ctx.voice_client.play(, after=lambda ex: asyncio.get_event_loop().create_task(
+        playFromAudioQueue(ctx)))
+    await ctx.send('>>> Now playing: `{}`'.format(video.title))"""
 
 
 @bot.after_invoke
@@ -109,18 +158,16 @@ async def play(ctx):
             # Ran out of search results
             raise commands.CommandError('No results were found.')
 
-    if 'https' in query or '.com' in query:  # Check if a link is given
-        query = video.title
-    toDownload[0].download('Songs/', filename=(query + '.mp4'))
 
-
-    source = discord.FFmpegPCMAudio("Songs/" + query + '.mp4')
-    audioQueue.append((source, video))
+    toDownload[0].download('Songs/', filename=(video.title + '.mp4'))
+    fileName = video.title + '.mp4'
+    global music
+    if music is None:
+        music = MusicPlayer(ctx)
+    music.audioQueue.append((fileName, video))
     await ctx.message.reply('Added to queue: `{}`'.format(video.title))
-    if not audioQueueCreated:
-        global ctxGlobal
-        ctxGlobal = ctx
-        await playFromAudioQueue()
+    #if len(music.audioQueue) == 1 and not ctx.voice_client.is_playing():
+
 
 @bot.command()
 async def randomMsg(ctx):
