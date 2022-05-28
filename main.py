@@ -1,23 +1,44 @@
 import asyncio
+import math
 import os
+import re
 import discord
 import random
 import requests
+import time
 import json
 import pytube
 import pytube.exceptions
 from discord.ext import commands
-from async_timeout import timeout
 
 bot = commands.Bot(command_prefix='!')
 musicPlayer = None
 musicCtx = None
 
 
+class AudioSourceTracked(discord.AudioSource):
+    def __init__(self, source):
+        self._source = source
+        self.count_20ms = 0
+
+    def read(self) -> bytes:
+        data = self._source.read()
+        if data:
+            self.count_20ms += 1
+        return data
+
+    @property
+    def progress(self) -> float:
+        return self.count_20ms * 0.02  # count_20ms * 20ms
+
+
 class MusicPlayer:
     def __init__(self, ctx):
         self.MAX_VIDEO_LENGTH = 600  # in seconds -> 10 minutes
-        self.current = None
+        self.current = None  # Of the form (fileName, YTVideo, FFMPEG Source)
+        self.currentStartTime = time.time()
+        self.pauseStart = 0
+        self.currentPauseTime = 0
         self.queue = []
         self.ctx = ctx
         self.player = self.ctx.voice_client
@@ -48,39 +69,53 @@ class MusicPlayer:
                 i += 1
             except IndexError:
                 # Ran out of search results
-                raise commands.CommandError('No results were found.')
+                await self.ctx.message.reply('No results were found.')
+                await self.ctx.message.add_reaction('❌')
+                return
+                # raise commands.CommandError('No results were found.')
 
         fileName = "".join([c for c in video.title if c.isalpha() or c.isdigit() or c == ' ']).rstrip()
-        " ".join(fileName.split())
+        fileName = re.sub(' +', ' ', fileName)
         fileName += '.mp4'
         toDownload[0].download('Songs/', filename=fileName)
+        source = discord.FFmpegPCMAudio("Songs/" + fileName)
         await self.ctx.message.reply('Added to queue: `' + video.title + '`')
-        self.queue.append((fileName, video))
-        await self.checkQueue()
+        self.queue.append((fileName, video, source))
+        await self.checkQueue(None)
 
-    async def checkQueue(self):
-        if self.player.is_playing():
+    async def checkQueue(self, sourceToClean):
+        if sourceToClean is not None:
+            sourceToClean.cleanup()
+        if self.player.is_playing() or self.player.is_paused():
             return
         try:
             self.current = self.queue.pop(0)
+            self.pauseStart = 0
+            self.currentPauseTime = 0
         except IndexError:
-            return self.destroy()
+            return await self.destroy()
+        await self.playAudio()
 
-        fileName = self.current[0]
+    async def playAudio(self):
+        # fileName = self.current[0]
         video = self.current[1]
-        source = discord.FFmpegPCMAudio("Songs/" + fileName)
-        await self.playAudio(source, video)
-        # source.cleanup()
-
-    async def playAudio(self, source, video):
-        self.player.play(source, after=lambda e: asyncio.run_coroutine_threadsafe(self.checkQueue(), bot.loop))
-        await self.ctx.send('Now playing: `' + video.title + '`')
+        source = self.current[2]
+        self.currentStartTime = time.time()
+        self.player.play(source, after=lambda x=source: asyncio.run_coroutine_threadsafe(
+            self.checkQueue(x), bot.loop))
+        await self.ctx.send('>>> Now playing: `' + video.title + '`')
 
     async def showQueue(self):
-        queueString = 'Current queue:\n'
-        for elements in self.queue:
-            queueString += elements[1].title
-            queueString += '\n'
+        currentVideo = self.current[1]
+        currentSource = self.current[2]
+        queueString = '```Current: {} | ({} / {})\n\n'.format(currentVideo.title, self.getCurrentTimestamp(),
+                                                              MusicPlayer.getVideoLength(currentVideo))
+        i = 1
+        for element in self.queue:
+            video = element[1]
+            queueString += '{}: {} | ({})\n'.format(i, video.title, MusicPlayer.getVideoLength(video))
+            i += 1
+        queueString += '```'
         await self.ctx.message.reply(queueString)
 
     def pause(self):
@@ -88,17 +123,45 @@ class MusicPlayer:
             # Unpause when pause is used when already paused
             return self.resume()
         self.player.pause()
+        self.pauseStart = time.time()
 
     def resume(self):
+        if self.player.is_playing():
+            return
         self.player.resume()
+        pauseTime = (time.time() - self.pauseStart)
+        self.currentPauseTime += pauseTime
+        self.pauseStart = 0
 
-    def skip(self):
+    async def skip(self):
         self.player.stop()
+        await self.checkQueue(None)
 
-    def destroy(self):
+    def getCurrentTimestamp(self):
+        endTime = time.time()
+        if self.pauseStart == 0:
+            timeInSeconds = (endTime - self.currentStartTime) - self.currentPauseTime
+        else:
+            timeInSeconds = (endTime - self.currentStartTime) - (endTime - self.pauseStart) - self.currentPauseTime
+        return MusicPlayer.convertToTimeStamp(timeInSeconds)
+
+    @staticmethod
+    def getVideoLength(video):
+        timeInSeconds = video.length
+        return MusicPlayer.convertToTimeStamp(timeInSeconds)
+
+    @staticmethod
+    def convertToTimeStamp(timeInSeconds):
+        minutes = math.floor(timeInSeconds / 60)
+        seconds = int(timeInSeconds % 60)
+        return "{}:{}".format(str(minutes), str(seconds).zfill(2))  # zfill places leading zeroes in front
+        # of string
+
+    async def destroy(self):
         global musicPlayer
         # TODO Purge songs folder first
         musicPlayer = None
+        await self.ctx.invoke(bot.get_command('leave'))
         return
 
 
@@ -109,10 +172,7 @@ def getUserVoiceChannel(ctx):
 
 
 @bot.after_invoke
-async def reactOnSuccessFail(ctx):
-    if ctx.command_failed:
-        await ctx.message.add_reaction('❌')
-        return
+async def reactOnSuccess(ctx):
     await ctx.message.add_reaction('✅')
 
 
@@ -123,6 +183,7 @@ async def on_ready():
 
 @bot.event
 async def on_command_error(ctx, error):
+    await ctx.message.add_reaction('❌')
     print('***Error*** (' + ctx.message.content + '):\t' + str(error))
     if isinstance(error, commands.CommandNotFound):
         await ctx.message.reply('**Invalid command!** Use __!help__ to list possible commands.')
@@ -163,7 +224,10 @@ async def join(ctx):
 
 @bot.command()
 async def leave(ctx):
-    await ctx.voice_client.disconnect()
+    if musicPlayer is not None:
+        await musicPlayer.destroy()
+    if ctx.voice_client is not None:
+        await ctx.voice_client.disconnect()
 
 
 @bot.command()
@@ -184,12 +248,14 @@ async def queue(ctx):
     musicPlayer.updateCtx(ctx)
     await musicPlayer.showQueue()
 
+
 @bot.command()
 async def pause(ctx):
     if musicPlayer is None:
         await ctx.message.reply('There is nothing to pause.')
         return
     musicPlayer.pause()
+
 
 @bot.command()
 async def resume(ctx):
@@ -198,12 +264,14 @@ async def resume(ctx):
         return
     musicPlayer.resume()
 
+
 @bot.command()
 async def skip(ctx):
     if musicPlayer is None:
         await ctx.message.reply('There is nothing to skip.')
         return
-    musicPlayer.skip()
+    await musicPlayer.skip()
+
 
 @bot.command()
 async def randomMsg(ctx):
