@@ -54,25 +54,27 @@ class MusicPlayer:
         " ".join(fileName.split())
         fileName += '.mp4'
         toDownload[0].download('Songs/', filename=fileName)
+        await self.ctx.message.reply('Added to queue: `' + video.title + '`')
         self.queue.append((fileName, video))
-        self.checkQueue()
+        await self.checkQueue()
 
-    def checkQueue(self):
+    async def checkQueue(self):
         if self.player.is_playing():
             return
         try:
-            self.current = self.queue.pop()
+            self.current = self.queue.pop(0)
         except IndexError:
-            return self.destroy(self.ctx.guild)
+            return self.destroy()
 
         fileName = self.current[0]
         video = self.current[1]
         source = discord.FFmpegPCMAudio("Songs/" + fileName)
-        self.playAudio(source)
+        await self.playAudio(source, video)
         # source.cleanup()
 
-    def playAudio(self, source):
-        self.player.play(source, after=lambda x=None: self.checkQueue())
+    async def playAudio(self, source, video):
+        self.player.play(source, after=lambda e: asyncio.run_coroutine_threadsafe(self.checkQueue(), bot.loop))
+        await self.ctx.send('Now playing: `' + video.title + '`')
 
     async def showQueue(self):
         queueString = 'Current queue:\n'
@@ -81,8 +83,23 @@ class MusicPlayer:
             queueString += '\n'
         await self.ctx.message.reply(queueString)
 
-    def destroy(self, guild):
-        return self.ctx.cog.cleanup(guild)
+    def pause(self):
+        if self.player.is_paused():
+            # Unpause when pause is used when already paused
+            return self.resume()
+        self.player.pause()
+
+    def resume(self):
+        self.player.resume()
+
+    def skip(self):
+        self.player.stop()
+
+    def destroy(self):
+        global musicPlayer
+        # TODO Purge songs folder first
+        musicPlayer = None
+        return
 
 
 def getUserVoiceChannel(ctx):
@@ -164,10 +181,29 @@ async def queue(ctx):
     if musicPlayer is None:
         await ctx.message.reply('The queue is empty.')
         return
-
     musicPlayer.updateCtx(ctx)
     await musicPlayer.showQueue()
 
+@bot.command()
+async def pause(ctx):
+    if musicPlayer is None:
+        await ctx.message.reply('There is nothing to pause.')
+        return
+    musicPlayer.pause()
+
+@bot.command()
+async def resume(ctx):
+    if musicPlayer is None:
+        await ctx.message.reply('There is nothing to resume.')
+        return
+    musicPlayer.resume()
+
+@bot.command()
+async def skip(ctx):
+    if musicPlayer is None:
+        await ctx.message.reply('There is nothing to skip.')
+        return
+    musicPlayer.skip()
 
 @bot.command()
 async def randomMsg(ctx):
