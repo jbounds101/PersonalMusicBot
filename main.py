@@ -2,8 +2,6 @@ import asyncio
 import math
 import os
 import re
-import sys
-
 import discord
 import random
 import requests
@@ -13,16 +11,26 @@ import pytube
 import pytube.exceptions
 import tempfile
 import shutil
+from contextlib import contextmanager
 from discord.ext import commands
 
 bot = commands.Bot(command_prefix='!')
 musicPlayer = None
 musicCtx = None
 
+@contextmanager
+def TemporaryDirectory():
+    directory = tempfile.mkdtemp()
+    try:
+        yield directory
+    finally:
+        shutil.rmtree(directory)
+
 class MusicPlayer:
     def __init__(self, ctx):
         self.MAX_VIDEO_LENGTH = 600  # in seconds -> 10 minutes
-        self.current = None  # Of the form (fileName, YTVideo, FFMPEG Source)
+        self.current = {'fileName': None, 'video': None, 'source': None}  # Of the form (fileName, YTVideo,
+        # FFMPEG Source)
         self.currentStartTime = time.time()
         self.pauseStart = 0
         self.currentPauseTime = 0
@@ -66,12 +74,13 @@ class MusicPlayer:
         toDownload[0].download(self.songsDir, filename=fileName)
         source = discord.FFmpegPCMAudio(self.songsDir + '/' + fileName)
         await self.ctx.message.reply('Added to queue: `' + video.title + '`')
-        self.queue.append((fileName, video, source))
+        self.queue.append({'fileName': fileName, 'video': video, 'source': source})
         await self.checkQueue(None)
 
     async def checkQueue(self, sourceToClean):
         if sourceToClean is not None:
             sourceToClean.cleanup()
+            self.current['source'] = None
         if self.player.is_playing() or self.player.is_paused():
             return
         try:
@@ -83,19 +92,16 @@ class MusicPlayer:
         await self.playAudio()
 
     async def playAudio(self):
-        # fileName = self.current[0]
-        video = self.current[1]
-        source = self.current[2]
+        source = self.current['source']
         self.currentStartTime = time.time()
         self.player.play(source, after=lambda x=source: asyncio.run_coroutine_threadsafe(
             self.checkQueue(x), bot.loop))
-        await self.ctx.send('>>> Now playing: `' + video.title + '`')
+        await self.ctx.send('>>> Now playing: `' + self.current['video'].title + '`')
 
     async def showQueue(self):
-        currentVideo = self.current[1]
-        currentSource = self.current[2]
-        queueString = '```Current: {} | ({} / {})\n\n'.format(currentVideo.title, self.getCurrentTimestamp(),
-                                                              MusicPlayer.getVideoLength(currentVideo))
+        video = self.current['video']
+        queueString = '```Current: {} | ({} / {})\n\n'.format(video.title, self.getCurrentTimestamp(),
+                                                              MusicPlayer.getVideoLength(video))
         i = 1
         for element in self.queue:
             video = element[1]
@@ -121,7 +127,7 @@ class MusicPlayer:
 
     async def skip(self):
         self.player.stop()
-        await self.checkQueue(None)
+        await self.checkQueue(self.current['source'])
 
     def getCurrentTimestamp(self):
         endTime = time.time()
@@ -145,17 +151,19 @@ class MusicPlayer:
 
     async def destroy(self):
         global musicPlayer
+        if musicPlayer is None:
+            # Already deleted, return (calls after checkQueue() from audio ending)
+            return
         musicPlayer = None
-        try:
-            yield self.songsDir
-        finally:
-            try:
-                shutil.rmtree(self.songsDir)
-                print('Cleaned up temp dir {}'.format(self.songsDir))
-            except IOError:
-                sys.stderr.write('Failed to clean up temp dir {}'.format(self.songsDir))
-        await self.ctx.invoke(bot.get_command('leave'))
-        return
+        if self.player.is_playing():
+            self.player.stop()
+        if os.path.exists(self.songsDir):
+            print('Path {} successfully removed'.format(self.songsDir))
+            while self.current['source'] is not None:
+                # Need to ensure that the current source is removed before deleting the file
+                time.sleep(.25)
+            shutil.rmtree(self.songsDir)
+        await self.player.disconnect()
 
 
 def getUserVoiceChannel(ctx):
