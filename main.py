@@ -18,19 +18,10 @@ bot = commands.Bot(command_prefix='!')
 musicPlayer = None
 musicCtx = None
 
-@contextmanager
-def TemporaryDirectory():
-    directory = tempfile.mkdtemp()
-    try:
-        yield directory
-    finally:
-        shutil.rmtree(directory)
-
 class MusicPlayer:
     def __init__(self, ctx):
         self.MAX_VIDEO_LENGTH = 600  # in seconds -> 10 minutes
-        self.current = {'fileName': None, 'video': None, 'source': None}  # Of the form (fileName, YTVideo,
-        # FFMPEG Source)
+        self.current = {'filename': None, 'video': None, 'source': None}
         self.currentStartTime = time.time()
         self.pauseStart = 0
         self.currentPauseTime = 0
@@ -47,39 +38,55 @@ class MusicPlayer:
             raise commands.CommandError('No media was specified.')
         query = self.ctx.message.content.split(' ', 1)[1]
 
-        # Search YouTube for the video
-        search = pytube.Search(query)
 
-        i = 0
-        while True:
+        stream = None
+        video = None
+        toDownload = None
+        if MusicPlayer.isURL(query):
+            # This is a link to a video
             try:
-                video = search.results[i]
-                if video.length > self.MAX_VIDEO_LENGTH:
-                    i += 1
-                    continue
+                video = pytube.YouTube(query)
                 stream = pytube.YouTube(video.watch_url)
                 toDownload = stream.streams.filter(only_audio=True)
-                break
-            except pytube.exceptions.LiveStreamError:
-                # Video is a live stream
-                i += 1
-            except IndexError:
-                # Ran out of search results
-                await self.ctx.message.reply('No results were found.')
+            except pytube.exceptions.RegexMatchError:
+                # TODO probably need to catch more errors
+                await self.ctx.message.reply('**Given link returned no results.**')
                 raise commands.CommandError('HANDLED')
+        else:
+            # Search YouTube for the video
+            search = pytube.Search(query)[]
+            i = 0
+            while True:
+                try:
+                    video = search.results[i]
+                    if video.length > self.MAX_VIDEO_LENGTH:
+                        i += 1
+                        continue
+                    stream = pytube.YouTube(video.watch_url)
+                    toDownload = stream.streams.filter(only_audio=True)
+                    break
+                except pytube.exceptions.LiveStreamError:
+                    # Video is a live stream
+                    i += 1
+                except IndexError:
+                    # Ran out of search results
+                    await self.ctx.message.reply('No results were found.')
+                    raise commands.CommandError('HANDLED')
 
-        fileName = "".join([c for c in video.title if c.isalpha() or c.isdigit() or c == ' ']).rstrip()
-        fileName = re.sub(' +', ' ', fileName)
-        fileName += '.mp4'
-        toDownload[0].download(self.songsDir, filename=fileName)
-        source = discord.FFmpegPCMAudio(self.songsDir + '/' + fileName)
+        filename_ = "".join([c for c in video.title if c.isalpha() or c.isdigit() or c == ' ']).rstrip()
+        filename_ = re.sub(' +', ' ', filename_)
+        filename_ += '.mp4'
         await self.ctx.message.reply('Added to queue: `' + video.title + '`')
-        self.queue.append({'fileName': fileName, 'video': video, 'source': source})
+        toDownload[0].download(self.songsDir, filename=filename_)
+        source = discord.FFmpegPCMAudio(self.songsDir + '/' + filename_)
+        self.queue.append({'filename': filename_, 'video': video, 'source': source})
         await self.checkQueue(None)
 
     async def checkQueue(self, sourceToClean):
         if sourceToClean is not None:
             sourceToClean.cleanup()
+            current_ = self.songsDir + '/' + self.current['filename']
+            os.remove(current_)
             self.current['source'] = None
         if self.player.is_playing() or self.player.is_paused():
             return
@@ -104,7 +111,7 @@ class MusicPlayer:
                                                               MusicPlayer.getVideoLength(video))
         i = 1
         for element in self.queue:
-            video = element[1]
+            video = element['video']
             queueString += '{}: {} | ({})\n'.format(i, video.title, MusicPlayer.getVideoLength(video))
             i += 1
         queueString += '```'
@@ -149,6 +156,13 @@ class MusicPlayer:
         return "{}:{}".format(str(minutes), str(seconds).zfill(2))  # zfill places leading zeroes in front
         # of string
 
+    @staticmethod
+    def isURL(query):
+        if '.com' or 'http' in query:
+            return True
+        else:
+            return False
+
     async def destroy(self):
         global musicPlayer
         if musicPlayer is None:
@@ -158,11 +172,11 @@ class MusicPlayer:
         if self.player.is_playing():
             self.player.stop()
         if os.path.exists(self.songsDir):
-            print('Path {} successfully removed'.format(self.songsDir))
             while self.current['source'] is not None:
                 # Need to ensure that the current source is removed before deleting the file
                 time.sleep(.25)
             shutil.rmtree(self.songsDir)
+            print('Path {} successfully removed'.format(self.songsDir))
         await self.player.disconnect()
 
 
@@ -232,10 +246,10 @@ async def join(ctx):
 
 @bot.command()
 async def leave(ctx):
-    if musicPlayer is not None:
-        await musicPlayer.destroy()
-    if ctx.voice_client is not None:
+    if musicPlayer is None:
         await ctx.voice_client.disconnect()
+    else:
+        await musicPlayer.destroy()
 
 
 @bot.command()
