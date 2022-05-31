@@ -2,6 +2,8 @@ import asyncio
 import math
 import os
 import re
+import sys
+
 import discord
 import random
 import requests
@@ -9,28 +11,13 @@ import time
 import json
 import pytube
 import pytube.exceptions
+import tempfile
+import shutil
 from discord.ext import commands
 
 bot = commands.Bot(command_prefix='!')
 musicPlayer = None
 musicCtx = None
-
-
-class AudioSourceTracked(discord.AudioSource):
-    def __init__(self, source):
-        self._source = source
-        self.count_20ms = 0
-
-    def read(self) -> bytes:
-        data = self._source.read()
-        if data:
-            self.count_20ms += 1
-        return data
-
-    @property
-    def progress(self) -> float:
-        return self.count_20ms * 0.02  # count_20ms * 20ms
-
 
 class MusicPlayer:
     def __init__(self, ctx):
@@ -42,6 +29,7 @@ class MusicPlayer:
         self.queue = []
         self.ctx = ctx
         self.player = self.ctx.voice_client
+        self.songsDir = tempfile.mkdtemp()
 
     def updateCtx(self, ctx):
         self.ctx = ctx
@@ -70,15 +58,13 @@ class MusicPlayer:
             except IndexError:
                 # Ran out of search results
                 await self.ctx.message.reply('No results were found.')
-                await self.ctx.message.add_reaction('❌')
-                return
-                # raise commands.CommandError('No results were found.')
+                raise commands.CommandError('HANDLED')
 
         fileName = "".join([c for c in video.title if c.isalpha() or c.isdigit() or c == ' ']).rstrip()
         fileName = re.sub(' +', ' ', fileName)
         fileName += '.mp4'
-        toDownload[0].download('Songs/', filename=fileName)
-        source = discord.FFmpegPCMAudio("Songs/" + fileName)
+        toDownload[0].download(self.songsDir, filename=fileName)
+        source = discord.FFmpegPCMAudio(self.songsDir + '/' + fileName)
         await self.ctx.message.reply('Added to queue: `' + video.title + '`')
         self.queue.append((fileName, video, source))
         await self.checkQueue(None)
@@ -159,8 +145,15 @@ class MusicPlayer:
 
     async def destroy(self):
         global musicPlayer
-        # TODO Purge songs folder first
         musicPlayer = None
+        try:
+            yield self.songsDir
+        finally:
+            try:
+                shutil.rmtree(self.songsDir)
+                print('Cleaned up temp dir {}'.format(self.songsDir))
+            except IOError:
+                sys.stderr.write('Failed to clean up temp dir {}'.format(self.songsDir))
         await self.ctx.invoke(bot.get_command('leave'))
         return
 
@@ -173,7 +166,8 @@ def getUserVoiceChannel(ctx):
 
 @bot.after_invoke
 async def reactOnSuccess(ctx):
-    await ctx.message.add_reaction('✅')
+    if not ctx.command_failed:
+        await ctx.message.add_reaction('✅')
 
 
 @bot.event
@@ -184,9 +178,15 @@ async def on_ready():
 @bot.event
 async def on_command_error(ctx, error):
     await ctx.message.add_reaction('❌')
+    if str(error) == 'HANDLED':
+        # This is a handled error, just add 'X', this could be the result of something like a search not finding a
+        # result, usually reserved for more specific command usage, such as using !play when in a voice channel
+        return
+
     print('***Error*** (' + ctx.message.content + '):\t' + str(error))
     if isinstance(error, commands.CommandNotFound):
         await ctx.message.reply('**Invalid command!** Use __!help__ to list possible commands.')
+
     else:
         await ctx.message.reply('**Invalid command usage!** Use __!help__ to list proper usage.')
 
@@ -215,8 +215,8 @@ async def whereAmI(ctx):
 async def join(ctx):
     voiceChannel = getUserVoiceChannel(ctx)
     if voiceChannel is None:
-        raise commands.CommandError('You are not connected to a voice channel.')
-
+        await ctx.message.reply('**Invalid command usage!** You must be connected to a voice channel.')
+        raise commands.CommandError('HANDLED')
     if ctx.voice_client is not None:
         return await ctx.voice_client.move_to(voiceChannel)
     await voiceChannel.connect()
