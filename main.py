@@ -2,6 +2,8 @@ import asyncio
 import math
 import os
 import re
+
+import aiohttp
 import discord
 import random
 import requests
@@ -21,7 +23,7 @@ musicCtx = None
 class MusicPlayer:
     def __init__(self, ctx):
         self.MAX_VIDEO_LENGTH = 600  # in seconds -> 10 minutes
-        self.current = {'filename': None, 'video': None, 'source': None}
+        self.current = {'filename': None, 'video': None, 'source': None, 'sendGif': False}
         self.currentStartTime = time.time()
         self.pauseStart = 0
         self.currentPauseTime = 0
@@ -33,14 +35,11 @@ class MusicPlayer:
     def updateCtx(self, ctx):
         self.ctx = ctx
 
-    async def addToQueue(self):
+    async def addToQueue(self, sendGif):
         if self.ctx.message.content is None:
             raise commands.CommandError('No media was specified.')
         query = self.ctx.message.content.split(' ', 1)[1]
 
-
-        stream = None
-        video = None
         toDownload = None
         if MusicPlayer.isURL(query):
             # This is a link to a video
@@ -48,13 +47,14 @@ class MusicPlayer:
                 video = pytube.YouTube(query)
                 stream = pytube.YouTube(video.watch_url)
                 toDownload = stream.streams.filter(only_audio=True)
-            except pytube.exceptions.RegexMatchError:
+            except (pytube.exceptions.RegexMatchError or pytube.exceptions.VideoPrivate or
+                    pytube.exceptions.VideoUnavailable):
                 # TODO probably need to catch more errors
                 await self.ctx.message.reply('**Given link returned no results.**')
                 raise commands.CommandError('HANDLED')
         else:
             # Search YouTube for the video
-            search = pytube.Search(query)[]
+            search = pytube.Search(query)
             i = 0
             while True:
                 try:
@@ -72,6 +72,7 @@ class MusicPlayer:
                     # Ran out of search results
                     await self.ctx.message.reply('No results were found.')
                     raise commands.CommandError('HANDLED')
+        assert toDownload is not None
 
         filename_ = "".join([c for c in video.title if c.isalpha() or c.isdigit() or c == ' ']).rstrip()
         filename_ = re.sub(' +', ' ', filename_)
@@ -79,7 +80,7 @@ class MusicPlayer:
         await self.ctx.message.reply('Added to queue: `' + video.title + '`')
         toDownload[0].download(self.songsDir, filename=filename_)
         source = discord.FFmpegPCMAudio(self.songsDir + '/' + filename_)
-        self.queue.append({'filename': filename_, 'video': video, 'source': source})
+        self.queue.append({'filename': filename_, 'video': video, 'source': source, 'sendGif': sendGif})
         await self.checkQueue(None)
 
     async def checkQueue(self, sourceToClean):
@@ -100,13 +101,19 @@ class MusicPlayer:
 
     async def playAudio(self):
         source = self.current['source']
+        assert source is not None
         self.currentStartTime = time.time()
         self.player.play(source, after=lambda x=source: asyncio.run_coroutine_threadsafe(
             self.checkQueue(x), bot.loop))
-        await self.ctx.send('>>> Now playing: `' + self.current['video'].title + '`')
+        msg = await self.ctx.send('>>> Now playing: `' + self.current['video'].title + '`')
+
+        if self.current['sendGif'] is True:
+            # Send a gif with 'Now playing: '
+            await giphySendGif(self.ctx, self.current['video'].title)
 
     async def showQueue(self):
         video = self.current['video']
+        assert video is not None
         queueString = '```Current: {} | ({} / {})\n\n'.format(video.title, self.getCurrentTimestamp(),
                                                               MusicPlayer.getVideoLength(video))
         i = 1
@@ -185,7 +192,19 @@ def getUserVoiceChannel(ctx):
         return None
     return ctx.author.voice.channel
 
+async def giphySendGif(ctx, query):
+    # This needs to include 'query' since ctx.message.content may not be what we need to search (MusicPlayer)
+    embed = discord.Embed(colour=discord.Colour.purple())
+    session = aiohttp.ClientSession()
 
+    query.replace(' ', '+')
+    response = await session.get(
+        'http://api.giphy.com/v1/gifs/search?q=' + query + '&api_key=' + os.getenv('GIPHY_API_KEY') + '&limit=10')
+    data = json.loads(await response.text())
+    gifChoice = random.randint(0, 9)
+    embed.set_image(url=data['data'][gifChoice]['images']['original']['url'])
+    await session.close()
+    await ctx.channel.send(embed=embed)
 @bot.after_invoke
 async def reactOnSuccess(ctx):
     if not ctx.command_failed:
@@ -253,13 +272,24 @@ async def leave(ctx):
 
 
 @bot.command()
-async def play(ctx):
+async def play(ctx, sendGif_):
     await ctx.invoke(bot.get_command('join'))
     global musicPlayer
     if musicPlayer is None:
+        # Create musicPlayer if it doesn't exist
         musicPlayer = MusicPlayer(ctx)
+
+    if sendGif_ is not True:
+        sendGif_ = False
+        # sendGif_ is the message given by default, over-ridden with playi
+
     musicPlayer.updateCtx(ctx)
-    await musicPlayer.addToQueue()
+    await musicPlayer.addToQueue(sendGif_)
+
+@bot.command()
+async def playi(ctx):
+    await ctx.invoke(bot.get_command('play'), True)
+
 
 
 @bot.command()
