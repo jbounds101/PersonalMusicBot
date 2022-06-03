@@ -141,7 +141,7 @@ class MusicPlayer:
             sAdd = ''
         queueString = 'There {} **{}** song{} in the queue.\n'.format(isAre, len(self.queue), sAdd)
         queueString += '```Current: {} | ({} / {})\n\n'.format(video.title, self.getCurrentTimestamp(),
-                                                              MusicPlayer.getVideoLength(video))
+                                                               MusicPlayer.getVideoLength(video))
         i = 1
         for element in self.queue:
             video = element['video']
@@ -185,7 +185,7 @@ class MusicPlayer:
     def shuffle(self):
         random.shuffle(self.queue)
 
-    #async def
+    # async def
 
     @staticmethod
     def getVideoLength(video):
@@ -228,6 +228,7 @@ def getUserVoiceChannel(ctx):
         return None
     return ctx.author.voice.channel
 
+
 async def giphySendGif(ctx, query):
     # This needs to include 'query' since ctx.message.content may not be what we need to search (MusicPlayer)
     embed = discord.Embed(colour=discord.Colour.purple())
@@ -244,14 +245,17 @@ async def giphySendGif(ctx, query):
         return
     await ctx.channel.send(embed=embed)
 
+
 @bot.after_invoke
 async def reactOnSuccess(ctx):
     if not ctx.command_failed:
         await ctx.message.add_reaction('✅')
 
+
 @bot.event
 async def on_ready():
     print('Logged in as {0.user}'.format(bot))
+
 
 @bot.event
 async def on_command_error(ctx, error):
@@ -269,10 +273,17 @@ async def on_command_error(ctx, error):
         await ctx.message.reply('**Invalid command usage!** Use __!help__ to list proper usage.')
 
 
-# ---Commands---
-@bot.command()
-async def echo(ctx, *, arg):
-    await ctx.message.reply(arg)
+
+class Utility(commands.Cog):
+
+    # ---Commands---
+    @commands.command(
+        brief='Repeats the given query.',
+        help='Replies to the command message using an exact copy of the message given.'
+    )
+    async def echo(self, ctx, *, arg):
+        await ctx.message.reply(arg)
+
 
 @bot.command()
 async def add(ctx, a: int, b: int):  # converts a and b to ints during invoke
@@ -280,11 +291,13 @@ async def add(ctx, a: int, b: int):  # converts a and b to ints during invoke
         a = 11  # 9 + 10 = 21
     await ctx.message.reply(a + b)
 
+
 @bot.command()
 async def whereAmI(ctx):
     if getUserVoiceChannel(ctx) is None:
         return await ctx.message.reply('You are not in a voice channel currently.')
     await ctx.message.reply(getUserVoiceChannel(ctx))
+
 
 @bot.command()
 async def join(ctx):
@@ -296,6 +309,7 @@ async def join(ctx):
         return await ctx.voice_client.move_to(voiceChannel)
     await voiceChannel.connect()
 
+
 @bot.command()
 async def leave(ctx):
     if musicPlayer is None:
@@ -303,10 +317,6 @@ async def leave(ctx):
     else:
         await musicPlayer.destroy()
 
-# Copy of 'leave'
-@bot.command()
-async def quit(ctx):
-    await ctx.invoke(bot.get_command('leave'))
 
 @bot.command()
 async def play(ctx, sendGif_):
@@ -323,19 +333,11 @@ async def play(ctx, sendGif_):
     musicPlayer.updateCtx(ctx)
     await musicPlayer.addToQueue(sendGif_)
 
-# Copy of 'play'
-@bot.command()
-async def p(ctx):
-    await ctx.invoke(bot.get_command('play'), False)
 
 @bot.command()
 async def playi(ctx):
     await ctx.invoke(bot.get_command('play'), True)
 
-# Copy of 'playi'
-@bot.command()
-async def pi(ctx):
-    await ctx.invoke(bot.get_command('play'), True)
 
 @bot.command()
 async def queue(ctx):
@@ -345,10 +347,6 @@ async def queue(ctx):
     musicPlayer.updateCtx(ctx)
     await musicPlayer.showQueue()
 
-# Copy of 'queue'
-@bot.command()
-async def q(ctx):
-    await ctx.invoke(bot.get_command('queue'))
 
 @bot.command()
 async def pause(ctx):
@@ -357,6 +355,7 @@ async def pause(ctx):
         return
     musicPlayer.pause()
 
+
 @bot.command()
 async def resume(ctx):
     if musicPlayer is None:
@@ -364,10 +363,6 @@ async def resume(ctx):
         return
     musicPlayer.resume()
 
-# Copy of 'resume'
-@bot.command()
-async def unpause(ctx):
-    await ctx.invoke(bot.get_command('resume'))
 
 @bot.command()
 async def skip(ctx):
@@ -376,10 +371,6 @@ async def skip(ctx):
         return
     await musicPlayer.skip()
 
-# Copy of 'skip'
-@bot.command()
-async def s(ctx):
-    await ctx.invoke(bot.get_command('skip'))
 
 @bot.command()
 async def shuffle(ctx):
@@ -396,12 +387,13 @@ async def randomMsg(ctx):
     await selected.reply('This message is from ---')
     # TODO overhaul this
 
+
 @bot.command()
 async def fox(ctx):
     response = requests.get('https://randomfox.ca/floof').json()
     await ctx.message.reply(response.get('image'))
 
 
-
-
+bot.add_cog(Utility())
 bot.run(os.getenv('DISCORD_TOKEN'))
+
