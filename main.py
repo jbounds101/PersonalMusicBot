@@ -34,6 +34,8 @@ class MusicPlayer:
         self.songsDir = tempfile.mkdtemp()
         self.queueLock = threading.Lock()
         self.queueSemaphore = threading.Semaphore(0)
+        self.deleted = False
+        print(self.songsDir)
 
 
     def updateCtx(self, ctx):
@@ -90,7 +92,7 @@ class MusicPlayer:
         else:
             # Adding multiple songs (playlist)
             await self.ctx.message.reply('Attempting to add **{}** songs to the queue'.format(len(playlist)))
-            thr = threading.Thread(target=self.createThreads, daemon=True, args=(playlist, sendGif))
+            thr = threading.Thread(target=self.createThreads, args=(playlist, sendGif))
             thr.start()
             self.queueSemaphore.acquire()
             #print('Safe to check queue')
@@ -133,12 +135,15 @@ class MusicPlayer:
             return False
 
     async def checkQueue(self):
+        if self.player.is_playing():
+            return
         if (self.source is not None) and (not self.player.is_playing()) and (not self.player.is_paused()):
             # Clean up after song end
             self.source.cleanup()
             current_ = self.songsDir + '/' + self.current['filename']
             os.remove(current_)
-            self.source = None
+            if self.deleted:
+                return
         try:
             self.queueLock.acquire()
             self.current = self.queue.pop(0)
@@ -148,7 +153,6 @@ class MusicPlayer:
             self.currentPauseTime = 0
         except IndexError:
             self.queueLock.release()
-            self.source = None
             return await self.destroy()
         await self.playAudio()
 
@@ -162,8 +166,7 @@ class MusicPlayer:
 
         self.source = source
         self.currentStartTime = time.time()
-        # TODO Error with positional args here
-        self.player.play(source, after=lambda: asyncio.run_coroutine_threadsafe(
+        self.player.play(source, after=lambda x: asyncio.run_coroutine_threadsafe(
             self.checkQueue(), bot.loop))
         await self.ctx.send('>>> Now playing: `' + video.title + '`')
 
@@ -225,9 +228,9 @@ class MusicPlayer:
         return MusicPlayer.convertToTimeStamp(timeInSeconds)
 
     def shuffle(self):
+        self.queueLock.acquire()
         random.shuffle(self.queue)
-
-
+        self.queueLock.release()
 
     @staticmethod
     def getVideoLength(video):
@@ -249,19 +252,19 @@ class MusicPlayer:
             return False
 
     async def destroy(self):
+        self.deleted = True
         global musicPlayer
-        if musicPlayer is None:
-            # Already deleted, return (calls after checkQueue() from audio ending)
-            return
         musicPlayer = None
         if self.player.is_playing():
             self.player.stop()
-        if os.path.exists(self.songsDir):
-            while self.source is not None:
-                # Need to ensure that the current source is removed before deleting the file
-                time.sleep(.25)
-            shutil.rmtree(self.songsDir)
-            print('Path {} successfully removed'.format(self.songsDir))
+        while True:
+            try:
+                time.sleep(0.1)
+                shutil.rmtree(self.songsDir)
+                break
+            except shutil.Error:
+                pass
+        print('Successfully removed {}'.format(self.songsDir))
         await self.player.disconnect()
 
 
