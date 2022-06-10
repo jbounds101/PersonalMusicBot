@@ -323,25 +323,38 @@ class Testing(commands.Cog):
     # ---Commands---
     @commands.command(
         brief='Repeats the given query.',
-        help='Replies to the command message using an exact copy of the message given.'
+        help='Replies to the command message using an exact copy of the message given.',
+        usage='<query>'
     )
     async def echo(self, ctx, *, arg):
         await ctx.message.reply(arg)
 
-    @commands.command()
+    @commands.command(
+        brief='Adds the two numbers given.',
+        help='Gives the sum of the two numbers given.',
+        usage='<first number> <second number>'
+    )
     async def add(self, ctx, a: int, b: int):  # converts a and b to ints during invoke
         if a == 9 and b == 10:
             a = 11  # 9 + 10 = 21
         await ctx.message.reply(a + b)
 
-    @commands.command()
+    @commands.command(
+        brief='Tells you what voice channel you are currently connected to.',
+        help='Messages the voice channel name you are currently connected to.'
+    )
     async def whereAmI(self, ctx):
         if getUserVoiceChannel(ctx) is None:
             return await ctx.message.reply('You are not in a voice channel currently.')
         await ctx.message.reply(getUserVoiceChannel(ctx))
 
 class Music(commands.Cog):
-    @commands.command()
+    @commands.command(
+        brief='Search for the given query, or play the given YouTube link.',
+        help='Joins the voice channel you are currently connected to. Searches for the given query on YouTube and '
+             'plays the first result OR plays the given YouTube link (video or playlist).',
+        usage='<query> or <YouTube link>'
+    )
     async def play(self, ctx, sendGif_):
         await ctx.invoke(bot.get_command('join'))
         global musicPlayer
@@ -356,11 +369,20 @@ class Music(commands.Cog):
         musicPlayer.updateCtx(ctx)
         await musicPlayer.addToQueue(sendGif_)
 
-    @commands.command()
+    @commands.command(
+        brief='Search for the given query, or play the given YouTube link. Sends a gif on play.',
+        help='Joins the voice channel you are currently connected to. Searches for the given query on YouTube and '
+             'plays the first result OR plays the given YouTube link (video or playlist). Sends a GIPHY gif when '
+             'played.',
+        usage='<query> or <YouTube link>'
+    )
     async def playi(self, ctx):
         await ctx.invoke(bot.get_command('play'), True)
 
-    @commands.command()
+    @commands.command(
+        brief='Shows the current music queue.',
+        help='Shows the currently playing song and music queue.'
+    )
     async def queue(self, ctx):
         if musicPlayer is None:
             await ctx.message.reply('The queue is empty.')
@@ -368,28 +390,40 @@ class Music(commands.Cog):
         musicPlayer.updateCtx(ctx)
         await musicPlayer.showQueue()
 
-    @commands.command()
+    @commands.command(
+        brief='Pause the current song.',
+        help='Pause the current song. Resume if already paused.'
+    )
     async def pause(self, ctx):
         if musicPlayer is None:
             await ctx.message.reply('There is nothing to pause.')
             return
         musicPlayer.pause()
 
-    @commands.command()
+    @commands.command(
+        brief='Resume the current song.',
+        help='Resume the current song.'
+    )
     async def resume(self, ctx):
         if musicPlayer is None:
             await ctx.message.reply('There is nothing to resume.')
             return
         musicPlayer.resume()
 
-    @commands.command()
+    @commands.command(
+        brief='Skips the currently playing song.',
+        help='Skips the currently playing song.'
+    )
     async def skip(self, ctx):
         if musicPlayer is None:
             await ctx.message.reply('There is nothing to skip.')
             return
         await musicPlayer.skip()
 
-    @commands.command()
+    @commands.command(
+        brief='Shuffles the queue.',
+        help='Shuffles the current music queue.'
+    )
     async def shuffle(self, ctx):
         if musicPlayer is None:
             await ctx.message.reply('There is no queue.')
@@ -397,7 +431,10 @@ class Music(commands.Cog):
         musicPlayer.shuffle()
 
 class Utility(commands.Cog):
-    @commands.command()
+    @commands.command(
+        brief='Joins the voice channel.',
+        help='Joins the voice channel you are connected to.'
+    )
     async def join(self, ctx):
         voiceChannel = getUserVoiceChannel(ctx)
         if voiceChannel is None:
@@ -407,7 +444,10 @@ class Utility(commands.Cog):
             return await ctx.voice_client.move_to(voiceChannel)
         await voiceChannel.connect()
 
-    @commands.command()
+    @commands.command(
+        brief='Leaves the voice channel.',
+        help='Leaves the voice channel.'
+    )
     async def leave(self, ctx):
         if musicPlayer is None:
             await ctx.voice_client.disconnect()
@@ -422,7 +462,10 @@ class General(commands.Cog):
         await selected.reply('This message is from ---')
         # TODO overhaul this
 
-    @commands.command()
+    @commands.command(
+        brief='Sends a random fox picture.',
+        help='Sends a random fox picture from "https://randomfox.ca/floof".'
+    )
     async def fox(self, ctx):
         response = requests.get('https://randomfox.ca/floof').json()
         await ctx.message.reply(response.get('image'))
