@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import math
 import os
 import re
@@ -14,7 +15,11 @@ import tempfile
 import shutil
 import threading
 import concurrent.futures
+
+
 from discord.ext import commands
+
+
 
 bot = commands.Bot(command_prefix='!')
 musicPlayer = None
@@ -276,7 +281,7 @@ def getUserVoiceChannel(ctx):
 
 async def giphySendGif(ctx, query):
     # This needs to include 'query' since ctx.message.content may not be what we need to search (MusicPlayer)
-    embed = discord.Embed(colour=discord.Colour.purple())
+    embed = discord.Embed(colour=discord.Color.purple())
     session = aiohttp.ClientSession()
     query.replace(' ', '+')
     query = query[:50]  # Max length of a search query is 50 characters
@@ -430,6 +435,20 @@ class Music(commands.Cog):
             return
         musicPlayer.shuffle()
 
+    @commands.command(
+        brief='Stops the music player and leaves the voice channel.',
+        help='Stops the music player and leaves the voice channel.'
+    )
+    async def stop(self, ctx):
+        if ctx.voice_client is None:
+            await ctx.message.reply('**Invalid command usage!** The music player isn\'t connected to a voice channel!')
+            raise commands.CommandError('HANDLED')
+
+        if musicPlayer is None:
+            await ctx.voice_client.disconnect()
+        else:
+            await musicPlayer.destroy()
+
 class Utility(commands.Cog):
     @commands.command(
         brief='Joins the voice channel.',
@@ -449,18 +468,63 @@ class Utility(commands.Cog):
         help='Leaves the voice channel.'
     )
     async def leave(self, ctx):
+        if ctx.voice_client is None:
+            await ctx.message.reply('**Invalid command usage!** The music player isn\'t connected to a voice channel!')
+            raise commands.CommandError('HANDLED')
+
         if musicPlayer is None:
             await ctx.voice_client.disconnect()
         else:
             await musicPlayer.destroy()
 
 class General(commands.Cog):
-    @commands.command()
-    async def randomMsg(self, ctx):
-        messages = await ctx.channel.history(limit=100).flatten()
+    @commands.command(
+        brief='Gets a random message from a certain year.',
+        help='Replies a random message from the specified year, will embed images if the message has an attachment.'
+    )
+    async def randomMsg(self, ctx, year: int):
+        general = bot.get_channel(241904215117529088)
+
+        month = random.randint(1, 12)
+        day = 0
+        largeMonths = [1, 3, 5, 7, 8, 10, 12]
+        smallMonths = [4, 6, 9, 11]
+        if month in largeMonths:
+            day = random.randint(1, 31)
+        elif month in smallMonths:
+            day = random.randint(1, 30)
+        else:
+            # February
+            if year % 400 == 0:
+                day = random.randint(1, 29)
+            elif year % 100 == 0:
+                day = random.randint(1, 28)
+            elif year % 4 == 0:
+                day = random.randint(1, 29)
+        date = datetime.datetime(year, month, day)
+        try:
+            messages = await general.history(limit=100, around=date).flatten()
+        except Exception:
+            await ctx.message.reply('Invalid year.')
+            raise commands.CommandError('HANDLED')
         selected = random.choice(messages)
-        await selected.reply('This message is from ---')
-        # TODO overhaul this
+        attachments = selected.attachments
+        if attachments:
+            content = None
+        else:
+            content = selected.content
+        if content is None:
+            embed = discord.Embed(title=datetime.date(selected.created_at.year, month, day),
+                                  color=discord.Color.purple())
+        else:
+            embed = discord.Embed(title=datetime.date(selected.created_at.year, month, day),
+                                  description=content,
+                                  color=discord.Color.purple())
+        embed.set_author(name=selected.author, url=selected.jump_url,
+                         icon_url=selected.author.avatar_url)
+        if attachments:
+            embed.set_image(url=attachments[0].url)
+        await ctx.message.reply(embed=embed)
 
     @commands.command(
         brief='Sends a random fox picture.',
