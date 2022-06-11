@@ -485,23 +485,14 @@ class General(commands.Cog):
     async def randomMsg(self, ctx, year: int):
         general = bot.get_channel(241904215117529088)
 
-        month = random.randint(1, 12)
-        day = 0
-        largeMonths = [1, 3, 5, 7, 8, 10, 12]
-        smallMonths = [4, 6, 9, 11]
-        if month in largeMonths:
-            day = random.randint(1, 31)
-        elif month in smallMonths:
-            day = random.randint(1, 30)
-        else:
-            # February
-            if year % 400 == 0:
-                day = random.randint(1, 29)
-            elif year % 100 == 0:
-                day = random.randint(1, 28)
-            elif year % 4 == 0:
-                day = random.randint(1, 29)
-        date = datetime.datetime(year, month, day)
+        while True:
+            try:
+                date = datetime.datetime(year, random.randint(1, 12), random.randint(1, 31))
+                break
+            except ValueError:
+                # Date invalid
+                pass
+
         try:
             messages = await general.history(limit=100, around=date).flatten()
         except Exception:
@@ -514,10 +505,12 @@ class General(commands.Cog):
         else:
             content = selected.content
         if content is None:
-            embed = discord.Embed(title=datetime.date(selected.created_at.year, month, day),
+            embed = discord.Embed(title=datetime.date(selected.created_at.year, selected.created_at.month,
+                                                      selected.created_at.day),
                                   color=discord.Color.purple())
         else:
-            embed = discord.Embed(title=datetime.date(selected.created_at.year, month, day),
+            embed = discord.Embed(title=datetime.date(selected.created_at.year, selected.created_at.month,
+                                                      selected.created_at.day),
                                   description=content,
                                   color=discord.Color.purple())
         embed.set_author(name=selected.author, url=selected.jump_url,
