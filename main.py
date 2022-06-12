@@ -15,13 +15,10 @@ import tempfile
 import shutil
 import threading
 import concurrent.futures
-
-
 from discord.ext import commands
 
-
-
 bot = commands.Bot(command_prefix='!')
+
 musicPlayer = None
 musicCtx = None
 
@@ -67,7 +64,7 @@ class MusicPlayer:
                     songsToAdd = len(playlist)
                 else:
                     # The query wasn't a playlist and the link returned no result
-                    await self.ctx.message.reply('Given link returned no results.')
+                    await self.ctx.message.reply('Given link returned no results.', delete_after=10)
                     raise commands.CommandError('HANDLED')
         else:
             # Search YouTube for the video
@@ -82,21 +79,22 @@ class MusicPlayer:
                     break
                 except IndexError:
                     # Ran out of search results
-                    await self.ctx.message.reply('No results were found.')
+                    await self.ctx.message.reply('No results were found.', delete_after=10)
                     raise commands.CommandError('HANDLED')
 
         # If we get here, there is/are valid song(s) to queue
         if songsToAdd == 1:
             ret = self.thrAddQueue(video, sendGif)
             if ret is True:
-                await self.ctx.message.reply('Added to queue: `' + video.title + '`')
+                await self.ctx.message.reply('Added to queue: `' + video.title + '`', delete_after=10)
                 await self.checkQueue()
             else:
                 # This should NOT happen, but if in any case it does, this will throw an error
                 raise Exception
         else:
             # Adding multiple songs (playlist)
-            await self.ctx.message.reply('Attempting to add **{}** songs to the queue'.format(len(playlist)))
+            await self.ctx.message.reply('Attempting to add **{}** songs to the queue'.format(len(playlist)),
+                                         delete_after=10)
             thr = threading.Thread(target=self.createThreads, args=(playlist, sendGif))
             thr.start()
             self.queueSemaphore.acquire()
@@ -117,7 +115,7 @@ class MusicPlayer:
 
     async def createThreadsCallback(self, addedSuccessfully, playlistLength):
         await self.ctx.channel.send('>>> Finished. Added **{}** of **{}** songs to the queue.'
-                                    .format(addedSuccessfully, playlistLength))
+                                    .format(addedSuccessfully, playlistLength), delete_after=10)
 
     def thrAddQueue(self, video, sendGif):
         # Returns true if song was added, false otherwise
@@ -173,7 +171,7 @@ class MusicPlayer:
         self.currentStartTime = time.time()
         self.player.play(source, after=lambda x: asyncio.run_coroutine_threadsafe(
             self.checkQueue(), bot.loop))
-        await self.ctx.send('>>> Now playing: `' + video.title + '`')
+        await self.ctx.send('>>> Now playing: `' + video.title + '`', delete_after=10)
 
         if self.current['sendGif'] is True:
             # Send a gif with 'Now playing: '
@@ -317,10 +315,10 @@ async def on_command_error(ctx, error):
 
     print('***Error*** (' + ctx.message.content + '):\t' + str(error))
     if isinstance(error, commands.CommandNotFound):
-        await ctx.message.reply('**Invalid command!** Use __!help__ to list possible commands.')
+        await ctx.message.reply('**Invalid command!** Use __!help__ to list possible commands.', delete_after=10)
 
     else:
-        await ctx.message.reply('**Invalid command usage!** Use __!help__ to list proper usage.')
+        await ctx.message.reply('**Invalid command usage!** Use __!help__ to list proper usage.', delete_after=10)
 
 
 
@@ -390,7 +388,7 @@ class Music(commands.Cog):
     )
     async def queue(self, ctx):
         if musicPlayer is None:
-            await ctx.message.reply('The queue is empty.')
+            await ctx.message.reply('The queue is empty.', delete_after=10)
             return
         musicPlayer.updateCtx(ctx)
         await musicPlayer.showQueue()
@@ -401,7 +399,7 @@ class Music(commands.Cog):
     )
     async def pause(self, ctx):
         if musicPlayer is None:
-            await ctx.message.reply('There is nothing to pause.')
+            await ctx.message.reply('There is nothing to pause.', delete_after=10)
             return
         musicPlayer.pause()
 
@@ -411,7 +409,7 @@ class Music(commands.Cog):
     )
     async def resume(self, ctx):
         if musicPlayer is None:
-            await ctx.message.reply('There is nothing to resume.')
+            await ctx.message.reply('There is nothing to resume.', delete_after=10)
             return
         musicPlayer.resume()
 
@@ -421,7 +419,7 @@ class Music(commands.Cog):
     )
     async def skip(self, ctx):
         if musicPlayer is None:
-            await ctx.message.reply('There is nothing to skip.')
+            await ctx.message.reply('There is nothing to skip.', delete_after=10)
             return
         await musicPlayer.skip()
 
@@ -431,7 +429,7 @@ class Music(commands.Cog):
     )
     async def shuffle(self, ctx):
         if musicPlayer is None:
-            await ctx.message.reply('There is no queue.')
+            await ctx.message.reply('There is no queue.', delete_after=10)
             return
         musicPlayer.shuffle()
 
@@ -441,7 +439,8 @@ class Music(commands.Cog):
     )
     async def stop(self, ctx):
         if ctx.voice_client is None:
-            await ctx.message.reply('**Invalid command usage!** The music player isn\'t connected to a voice channel!')
+            await ctx.message.reply('**Invalid command usage!** The music player isn\'t connected to a voice '
+                                    'channel!', delete_after=10)
             raise commands.CommandError('HANDLED')
 
         if musicPlayer is None:
@@ -457,7 +456,8 @@ class Utility(commands.Cog):
     async def join(self, ctx):
         voiceChannel = getUserVoiceChannel(ctx)
         if voiceChannel is None:
-            await ctx.message.reply('**Invalid command usage!** You must be connected to a voice channel.')
+            await ctx.message.reply('**Invalid command usage!** You must be connected to a voice channel.',
+                                    delete_after=10)
             raise commands.CommandError('HANDLED')
         if ctx.voice_client is not None:
             return await ctx.voice_client.move_to(voiceChannel)
@@ -469,7 +469,8 @@ class Utility(commands.Cog):
     )
     async def leave(self, ctx):
         if ctx.voice_client is None:
-            await ctx.message.reply('**Invalid command usage!** The music player isn\'t connected to a voice channel!')
+            await ctx.message.reply('**Invalid command usage!** The music player isn\'t connected to a voice '
+                                    'channel!', delete_after=10)
             raise commands.CommandError('HANDLED')
 
         if musicPlayer is None:
@@ -496,7 +497,7 @@ class General(commands.Cog):
         try:
             messages = await general.history(limit=100, around=date).flatten()
         except Exception:
-            await ctx.message.reply('Invalid year.')
+            await ctx.message.reply('Invalid year.', delete_after=10)
             raise commands.CommandError('HANDLED')
         selected = random.choice(messages)
         attachments = selected.attachments
