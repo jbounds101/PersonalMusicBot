@@ -15,12 +15,15 @@ import tempfile
 import shutil
 import threading
 import concurrent.futures
+
+from discord.embeds import EmbedProxy
 from discord.ext import commands
 
 bot = commands.Bot(command_prefix='!')
 
 musicPlayer = None
 musicCtx = None
+
 
 class MusicPlayer:
     def __init__(self, ctx):
@@ -38,7 +41,6 @@ class MusicPlayer:
         self.queueSemaphore = threading.Semaphore(0)
         self.deleted = False
         print(self.songsDir)
-
 
     def updateCtx(self, ctx):
         self.ctx = ctx
@@ -98,9 +100,8 @@ class MusicPlayer:
             thr = threading.Thread(target=self.createThreads, args=(playlist, sendGif))
             thr.start()
             self.queueSemaphore.acquire()
-            #print('Safe to check queue')
+            # print('Safe to check queue')
             await self.checkQueue()
-
 
     def createThreads(self, playlist, sendGif):
         with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -277,6 +278,49 @@ def getUserVoiceChannel(ctx):
     return ctx.author.voice.channel
 
 
+def getRandomDate(year=None):
+    while True:
+        try:
+            if year is not None:
+                if int(year) == datetime.date.today().year:
+                    # This ensures that no date past the current is selected (this leads to many more messages
+                    # from the current time if given the current year
+                    date = datetime.datetime(int(year), random.randint(1, datetime.date.today().month),
+                                             random.randint(1, 31))
+                else:
+                    date = datetime.datetime(int(year), random.randint(1, 12), random.randint(1, 31))
+            else:
+                year = random.randint(2016, datetime.date.today().year)
+                if int(year) == datetime.date.today().year:
+                    # This ensures that no date past the current is selected (this leads to many more messages
+                    # from the current time if given the current year
+                    date = datetime.datetime(year, random.randint(1, datetime.date.today().month),
+                                             random.randint(1, 31))
+                else:
+                    date = datetime.datetime(year, random.randint(1, 12), random.randint(1, 31))
+            break
+        except ValueError:
+            # Date invalid
+            pass
+    return date
+
+
+def containsImage(message):
+    if not message.attachments:
+        return False
+    if (message.attachments[0].content_type == 'image/png' or
+            message.attachments[0].content_type == 'image/jpeg' or
+            message.attachments[0].content_type == 'image/gif' or
+            message.attachments[0].content_type == 'image/apng' or
+            message.attachments[0].content_type == 'image/avif' or
+            message.attachments[0].content_type == 'image/svg+xml' or
+            message.attachments[0].content_type == 'image/webp' or
+            message.attachments[0].filename.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif')) or
+            message.embeds[0].type == 'image'):
+        return True
+    return False
+
+
 async def giphySendGif(ctx, query):
     # This needs to include 'query' since ctx.message.content may not be what we need to search (MusicPlayer)
     embed = discord.Embed(colour=discord.Color.purple())
@@ -299,6 +343,7 @@ async def reactOnSuccess(ctx):
     if not ctx.command_failed:
         await ctx.message.add_reaction('✅')
 
+
 @bot.event
 async def on_ready():
     print('Logged in as {0.user}'.format(bot))
@@ -318,7 +363,6 @@ async def on_command_error(ctx, error):
 
     else:
         await ctx.message.reply('**Invalid command usage!** Use __!help__ to list proper usage.', delete_after=30)
-
 
 
 class Testing(commands.Cog):
@@ -349,6 +393,7 @@ class Testing(commands.Cog):
         if getUserVoiceChannel(ctx) is None:
             return await ctx.message.reply('You are not in a voice channel currently.')
         await ctx.message.reply(getUserVoiceChannel(ctx))
+
 
 class Music(commands.Cog):
     @commands.command(
@@ -447,6 +492,7 @@ class Music(commands.Cog):
         else:
             await musicPlayer.destroy()
 
+
 class Utility(commands.Cog):
     @commands.command(
         brief='Joins the voice channel.',
@@ -477,47 +523,86 @@ class Utility(commands.Cog):
         else:
             await musicPlayer.destroy()
 
+
 class General(commands.Cog):
     @commands.command(
         brief='Gets a random message from a certain year.',
         help='Replies a random message from the specified year, will embed images if the message has an attachment.'
     )
-    async def randomMsg(self, ctx, year: int):
+    async def randomMsg(self, ctx, year=None, user=None, msgType='any'):
+        msgType = msgType.lower()
         general = bot.get_channel(241904215117529088)
 
-        while True:
-            try:
-                date = datetime.datetime(year, random.randint(1, 12), random.randint(1, 31))
-                break
-            except ValueError:
-                # Date invalid
-                pass
+        # Get date of message
+        if year is not None:
+            if not year.isnumeric():
+                year = None
+        date = getRandomDate(year)
 
+        # Get a random message
+        maxSearches = 10
+        searches = 1
         try:
             messages = await general.history(limit=100, around=date).flatten()
         except Exception:
-            await ctx.message.reply('Invalid year.', delete_after=30)
+            await ctx.message.reply('**Error!** Invalid year.', delete_after=30)
             raise commands.CommandError('HANDLED')
-        selected = random.choice(messages)
-        attachments = selected.attachments
-        if attachments:
-            content = None
-        else:
-            content = selected.content
-        if content is None:
-            embed = discord.Embed(title=datetime.date(selected.created_at.year, selected.created_at.month,
-                                                      selected.created_at.day),
-                                  color=discord.Color.purple())
-        else:
-            embed = discord.Embed(title=datetime.date(selected.created_at.year, selected.created_at.month,
-                                                      selected.created_at.day),
-                                  description=content,
-                                  color=discord.Color.purple())
+
+        selected = None
+        img = None
+        while selected is None:
+            selected = random.choice(messages)
+            img = containsImage(selected)
+            if user is not None and selected.author.mention != user:
+                messages.remove(selected)
+                selected = None
+            elif msgType == 'message' or msgType == 'msg' and img:
+                # Search for a message with no attachments (images usually)
+                messages.remove(selected)
+                selected = None
+            elif msgType == 'image' or msgType == 'img' and not img:
+                # Searches for attachments
+                messages.remove(selected)
+                selected = None
+            elif (selected.author.bot
+                  or selected.content.startswith('-')
+                  or selected.content.startswith('!')
+                  or selected.content.startswith(';;')
+                  or selected.content.startswith('+')):
+                messages.remove(selected)
+                selected = None
+
+            if not messages:
+                # Ran out of messages
+                if searches < maxSearches:
+                    # Search again, use a different date
+                    date = getRandomDate(year)
+                    messages = await general.history(limit=100, around=date).flatten()
+                    searches += 1
+                else:
+                    await ctx.message.reply('**Error!** No messages were found.', delete_after=30)
+                    raise commands.CommandError('HANDLED')
+
+        content = selected.content
+        if img:
+            content = ''
+
+        embed = discord.Embed(title=datetime.date(selected.created_at.year, selected.created_at.month,
+                              selected.created_at.day).strftime("%m/%d/%Y"),
+                              description=content,
+                              color=discord.Color.purple())
         embed.set_author(name=selected.author, url=selected.jump_url,
                          icon_url=selected.author.avatar_url)
-        if attachments:
-            embed.set_image(url=attachments[0].url)
+
+        if img:
+            if selected.attachments:
+                embed.set_image(url=selected.attachments[0].url)
+            else:
+                # Embedded image
+                embed.set_image(url=selected.embeds[0].image.url)
+
         await ctx.message.reply(embed=embed)
+
 
     @commands.command(
         brief='Sends a random fox picture.',
@@ -528,10 +613,8 @@ class General(commands.Cog):
         await ctx.message.reply(response.get('image'))
 
 
-
 bot.add_cog(Testing())
 bot.add_cog(Music())
 bot.add_cog(Utility())
 bot.add_cog(General())
 bot.run(os.getenv('DISCORD_TOKEN'))
-
